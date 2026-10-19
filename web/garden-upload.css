@@ -1,0 +1,72 @@
+/* The arrival panel shares the garden's Observatory colors and type. */
+.garden-arrival {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow: auto;
+  touch-action: pan-y;
+}
+.arrival-panel {
+  width: 100%;
+  max-width: 510px;
+  padding: 26px;
+  color: var(--ink);
+  background: var(--paper-deep);
+  border: 1px solid var(--paper-line);
+  border-radius: 4px;
+  font: 12px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.arrival-panel h1 { margin: 0 0 6px; font: 500 22px/1.3 ui-monospace, monospace; }
+.arrival-panel p { margin: 0 0 18px; }
+.arrival-panel ol { margin: 22px 0; padding-left: 22px; }
+.arrival-panel li + li { margin-top: 20px; }
+.arrival-command { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 6px; }
+.arrival-command code { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--focus); user-select: text; }
+.arrival-panel button { min-height: 44px; background: var(--paper); border-color: var(--paper-line); color: var(--ink); }
+.arrival-panel button:hover { border-color: var(--muted); }
+.arrival-panel small { display: block; color: var(--muted); font-size: 11px; }
+#choose-garden-file { margin-top: 8px; }
+.arrival-panel .arrival-privacy { margin: 18px 0 0; color: var(--muted); font-size: 11px; }
+.arrival-panel #upload-status { margin: 12px 0 0; color: var(--rose); }
+#upload-status:empty { display: none; }
+body[data-garden-arrival=true] #data-loading,
+body[data-garden-arrival=true] .camera-tools,
+body[data-garden-arrival=true] .timeline,
+body[data-garden-arrival=true] #garden-support { visibility: hidden; }
+body[data-garden-drop=true]::after {
+  content: 'Drop agent-garden.json to open it';
+  position: fixed;
+  z-index: 50;
+  inset: 12px;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  text-align: center;
+  color: var(--focus);
+  background: #111E2EEE;
+  border: 1px dashed var(--focus);
+  pointer-events: none;
+}
+#garden-support { position: fixed; right: 12px; bottom: calc(var(--timeline-height) + 12px); z-index: 9; max-width: min(390px, calc(100vw - 24px)); }
+#garden-support > #shown-count, #garden-support > .note { display: none; }
+#data-details { background: var(--paper-deep); border: 1px solid var(--paper-line); border-radius: 3px; padding: 0 12px; font-size: 10px; }
+#data-details > summary { cursor: pointer; min-height: 44px; padding: 12px 0; overflow-wrap: anywhere; }
+#data-details-body { max-height: min(40svh, 300px); overflow: auto; color: var(--muted); }
+#data-details #refresh-data { min-height: 44px; margin: 4px 0 12px; background: var(--paper); color: var(--ink); border-color: var(--paper-line); }
+#session-agent { font-size: 10px; color: var(--muted); margin-top: 6px; }
+#hosted-messages-note { padding: 0 22px 14px; margin: 0; color: var(--muted); font-size: 11px; }
+body[data-garden-mode=hosted] #latest,
+body[data-garden-mode=hosted] #live-connection,
+body[data-garden-mode=hosted] #live-messages,
+body[data-garden-mode=hosted] #session-conversation { display: none !important; }
+@media (max-width: 540px) {
+  .garden-arrival { padding: 12px; }
+  .arrival-panel { padding: 20px 16px; }
+  .arrival-command { flex-wrap: wrap; }
+  .arrival-command code { flex-basis: 100%; }
+  #garden-support { bottom: calc(var(--timeline-height) + 6px); }
+}
+@media (max-height: 600px) { .garden-arrival { align-items: start; } }
