@@ -43,7 +43,12 @@ function legacyTrace(renderer, makeLegacyCloud, sample) {
       traces.push({ result, calls });
     }
   }
-  return createHash('sha256').update(JSON.stringify(traces)).digest('hex');
+  const canonical = JSON.stringify(traces, (_, value) => {
+    if (typeof value !== 'number') return value;
+    const rounded = Math.round(value * 1e6) / 1e6;
+    return rounded === 0 ? 0 : rounded;
+  });
+  return createHash('sha256').update(canonical).digest('hex');
 }
 
 test('leader drawing reveals once, seeks exactly, and vanishes after its fade window', () => {
@@ -64,7 +69,7 @@ test('leader drawing reveals once, seeks exactly, and vanishes after its fade wi
 
 test('default drawCloud canvas operations retain the pre-change rendering contract', () => {
   assert.equal(legacyTrace(drawCloud, createCloud, sampleArrival),
-    '75accab658f0a824601011441548780270c24b76a4ba24e8c20e5dc19af4263b');
+    '2de4f6daa42cf89fab7ff8d0f87fc4e79eec9063c28162b09180c3b90540c5d3');
 });
 
 

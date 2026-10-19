@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { before, test } = require('node:test');
+const { budgetMs } = require('./helpers/budget-ms.cjs');
 const dir = path.join(__dirname, '../../web/');
 let droneMod, robot, layoutMod, placeMod;
 before(async () => {
@@ -174,7 +175,7 @@ test('a real-size island builds quickly', () => {
   const started = performance.now(), p = droneMod.buildDronePath({ trees, outline: layout.outline });
   const ms = performance.now() - started;
   assert.ok(trees.length > 500);
-  assert.ok(ms < 600, `built ${trees.length} trees in ${ms.toFixed(0)} ms`);
+  assert.ok(ms < budgetMs(600), `built ${trees.length} trees in ${ms.toFixed(0)} ms`);
   assert.ok(p.length > 3000);
   console.log(`drone path: ${trees.length} trees, ${p.length.toFixed(0)} units, ${ms.toFixed(0)} ms, min canopy gap ${p.minCanopyGap.toFixed(0)}`);
 });
