@@ -1273,7 +1273,7 @@ def write_dataset(dataset, output):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(prog='agent_garden_export.py', description=__doc__)
     parser.add_argument('--source', choices=('all', 'codex', 'claude-code'), default='all',
                         help='History to read (default: all)')
     parser.add_argument('--codex-home', type=Path, default=default_codex_home(),
