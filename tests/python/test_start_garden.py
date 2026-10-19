@@ -89,7 +89,12 @@ class GardenLauncherTests(unittest.TestCase):
                     os.kill(pid, signal.SIGTERM)
                     deadline = time.monotonic() + 2
                     while time.monotonic() < deadline:
-                        if launcher.probe_server(port) is None:
+                        try:
+                            status = launcher.probe_server(port)
+                        except launcher.LaunchError:
+                            # A connection reset is valid while the verified child exits.
+                            status = True
+                        if status is None:
                             break
                         time.sleep(0.05)
             for extension in ("pid", "log"):
