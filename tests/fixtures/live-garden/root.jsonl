@@ -1,0 +1,3 @@
+{"type":"session_meta","timestamp":"2026-09-24T10:00:00.000Z","payload":{"id":"fixture-root","timestamp":"2026-09-24T10:00:00.000Z","cwd":"/synthetic/project","source":"vscode"}}
+{"type":"event_msg","timestamp":"2026-09-24T10:00:02.000Z","payload":{"type":"task_started","thread_id":"fixture-root","turn_id":"fixture-root-turn-1","started_at":1790244002}}
+{"type":"response_item","timestamp":"2026-09-24T10:00:04.000Z","payload":{"type":"agent_message","id":"root-message","text":"SYNTHETIC_ROOT_PRIVATE_TEXT"}}

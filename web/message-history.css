@@ -1,0 +1,19 @@
+.inspector-rail .message-history {
+  order: 2;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0 22px 14px;
+}
+
+.message-history > summary {
+  min-height: 44px;
+  padding: 14px 0;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  font: 600 11px/1.4 ui-monospace, monospace;
+}
+
+.message-history > summary:focus-visible {
+  outline: 2px solid var(--focus, #D1E9A2);
+  outline-offset: 2px;
+}

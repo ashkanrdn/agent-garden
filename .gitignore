@@ -1,0 +1,10 @@
+agent-garden.json
+local-session-data.json
+*.local.json
+.DS_Store
+__pycache__/
+*.py[cod]
+node_modules/
+/local/runtime/
+/artifacts/garden-runtime/
+/tasks/

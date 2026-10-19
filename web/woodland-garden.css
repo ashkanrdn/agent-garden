@@ -1,0 +1,55 @@
+/* Quiet field notes beside an uninterrupted woodland. */
+:root{--paper:#f3ecdc;--ink:#243f43;--teal:#367a65;--coral:#bb614d;--line:#284d4630;--night:#102d35;--rail:360px}
+body{background:var(--paper);color:var(--ink)}
+header{height:56px;padding:0 24px;gap:20px;background:#f6efdf;border-color:var(--line);position:relative;z-index:40}
+.brand{font-size:11px;letter-spacing:2px;display:flex;align-items:center;gap:8px}.brand b{color:#6b8769;font-size:26px}
+.garden-name{font:italic 18px Georgia,serif;margin:0;color:#607466}
+button,select,.browser-fields input,.browser-fields select{border-radius:5px;border-color:#64827555;background:#faf5e8;color:#2b4c44}
+button:hover{background:#e6ead6;border-color:#6b8d73}
+button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid #bb8534;outline-offset:3px}
+summary{cursor:pointer;min-height:36px;align-content:center}
+.browse-menu{margin-left:auto;font-size:11px}.browse-menu>summary{padding:6px 0 6px 12px}
+.browse-content{position:absolute;right:16px;top:50px;width:min(460px,calc(100vw - 32px));max-height:calc(100svh - 150px);overflow:auto;background:#f6efdf;border:1px solid var(--line);border-radius:8px;box-shadow:0 12px 35px #09282e30;padding:18px}
+.garden-browser{padding:0;border:0;background:none}.browser-fields{grid-template-columns:1fr;gap:12px}.browser-fields label{font-size:10px;letter-spacing:.6px}.browser-fields input,.browser-fields select{font-size:12px;min-height:40px;margin-top:4px}.browser-fields button{font-size:11px;min-height:40px}.browser-footer{display:block;font-size:10px;line-height:1.6;margin-top:12px}.camera-help{display:block;text-align:left;max-width:none;font-size:10px;margin-top:8px}
+.browse-content .world-key{position:static;display:flex;max-width:none;padding:14px 0;margin-top:14px;border:0;border-top:1px solid var(--line);background:none;font-size:10px;pointer-events:auto}.world-key i{background:#367a65}.world-key .fruit-dot{background:#b87739}
+.note{display:block;padding:12px 0;border-top:1px solid var(--line);background:none;font-size:10px;line-height:1.6}.note details{min-width:0;margin-top:10px}.alternate-view{font-size:10px}
+.garden-shell{display:grid;grid-template-columns:var(--rail) minmax(0,1fr);background:var(--night);isolation:isolate;min-height:calc(100svh - 144px)}
+.garden-shell .world{grid-column:2;grid-row:1;height:calc(100svh - 144px);min-height:420px;background:var(--night)}
+.world::after{content:none}
+.inspector-rail{grid-column:1;grid-row:1;position:sticky;top:0;align-self:start;height:calc(100svh - 144px);min-height:420px;overflow:auto;background:#f3ecdc;border-right:1px solid #36544c33;scrollbar-width:thin}
+.inspector-rail .session-card{position:static;max-height:none;overflow:visible;width:auto;margin:0;padding:24px 20px 18px;border:0;border-radius:0;box-shadow:none;background:none}
+.card-top{font-size:9px;letter-spacing:.7px;border:0;padding:0;color:#68786a}.card-top span:last-child{color:#52755b}
+.project{font-size:11px;color:#52755b;margin-top:22px}.session-card h2{font:24px/1.2 Georgia,serif;letter-spacing:-.5px;color:#284744;margin:8px 0 22px;-webkit-line-clamp:3}
+.metrics{gap:12px}.metrics strong{font:24px Georgia,serif;color:#2b5c50}.metrics strong.fruit{color:#ad6643}.metrics small{font-size:9px;color:#63715f;margin-top:4px}
+.session-evidence{margin-top:18px;font-size:11px;border-top:1px solid var(--line)}.session-evidence summary{color:#55705f}.session-card .evidence{border:0;padding:0;margin:0 0 8px;font-size:10px;line-height:1.6}.unknown{font-size:10px;line-height:1.6;margin-bottom:12px}
+.session-card select{width:100%;font-size:11px;min-height:38px;margin-top:12px;background:#faf5e8}.open-map{font-size:11px;min-height:38px;margin-top:8px;background:transparent;border-color:#64827555;color:#345e50}.open-map:hover{background:#e6ead6}
+.inspector-rail:has(.file-map:not([hidden])) .open-map{display:none}
+.inspector-rail .file-map{order:0;position:static;width:100%;max-height:none;overflow:visible;border:0;border-top:1px solid var(--line);border-radius:0;box-shadow:none;background:transparent}
+.map-head{background:none;border:0;padding:16px 20px 8px}.map-head strong{font-size:10px}.map-head small{font-size:10px;margin-top:6px}.map-head button{min-height:32px;min-width:32px;background:transparent}.map-head #map-close{font-size:20px}
+.map-meta{padding:4px 20px;font-size:8px;letter-spacing:0;gap:8px}.map-file-picker{font-size:9px;padding:8px 20px}.map-file-picker select{font-size:11px;min-height:36px}
+.map-tiles{height:220px;margin:4px 20px 0;border-color:#4c6b6333}.folder-title{font-size:9px}.tile-name{font-size:10px}.tile-bytes{font-size:8px}.map-unknown{padding:8px 20px;font-size:10px;max-height:100px}.map-unknown button{font-size:10px;min-height:30px}.map-key{padding:10px 20px;font-size:9px;flex-wrap:wrap;gap:6px 10px}.map-readout{padding:12px 20px;border-color:var(--line)}.map-readout strong{font-size:11px}.map-readout small{font-size:10px}.map-empty{font-size:11px;line-height:1.6}
+.arc-canvas{display:block;pointer-events:none}
+.camera-tools{left:50%;right:auto;top:auto;bottom:20px;transform:translateX(-50%);display:flex;flex-wrap:nowrap;gap:2px;padding:5px;background:#132f34ed;border:1px solid #bedcc32b;border-radius:7px;box-shadow:none;white-space:nowrap}
+.camera-tools button{background:transparent;color:#c9dbcb;border:0;padding:8px 10px;min-height:36px;font-size:10px}.camera-tools button:hover{background:#c0dcc51a}.camera-tools #zoom-label{font-size:9px;min-width:30px;color:#a9c2b0}.camera-tools #zoom-in,.camera-tools #zoom-out{font-size:18px;min-width:34px}.camera-tools #fit-garden{background:#d0dccd12;color:#e1e8cd;border:0}.camera-tools #tour-garden{color:#e9d29b}.camera-tools #tour-garden[aria-pressed="true"]{background:#b9dfbe;color:#234a3d}
+/* Keep live flight status available without permanent canvas text. */
+#tour-status{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.timeline{position:sticky;bottom:0;z-index:20;height:88px;padding:12px 24px;grid-template-columns:180px minmax(100px,1fr) auto;gap:24px;background:#f6efdf;border-color:var(--line)}
+.play-date{gap:12px}.play-date button{height:40px;width:40px;flex-shrink:0;border-radius:50%;background:#345e50;color:#fff7dd;border:0}.play-date strong{font:16px Georgia,serif;color:#36574b}.play-date small{font-size:7px;letter-spacing:.5px}.track-label{font-size:9px;color:#536f55;letter-spacing:.3px}.track-dates{font-size:8px}.timeline input{accent-color:#567e5a;margin:3px 0;height:20px}.timeline-actions{display:flex;gap:8px}.timeline-actions button{font-size:10px;min-height:36px;background:transparent}
+.data-loading{border-radius:8px;background:#f5ecdbf5;border-color:#d8dfbba0;color:#3e6251}
+.tree-target:hover,.tree-target:focus-visible{outline:none;box-shadow:none}
+@media(max-width:1000px){:root{--rail:320px}.inspector-rail .session-card{padding:20px 16px}.session-card h2{font-size:21px}.camera-tools button{padding:8px}.timeline{gap:16px}}
+@media(max-width:760px){header{height:56px;padding:0 16px;flex-wrap:nowrap;gap:12px}.brand{font-size:10px}.brand b{font-size:23px}.garden-name{display:none}.browse-menu{font-size:10px}.garden-shell{display:flex;flex-direction:column;min-height:0}.garden-shell .world{order:0;height:calc(100svh - 408px);min-height:300px}.inspector-rail{order:1;position:relative;height:auto;min-height:0;max-height:240px;width:100%;border:0;border-top:1px solid var(--line)}.inspector-rail .session-card{padding:18px 20px}.project{margin-top:12px}.session-card h2{font-size:22px;margin:6px 0 14px;-webkit-line-clamp:2}.metrics strong{font-size:22px}.session-card .metrics{grid-template-columns:repeat(3,1fr)}.session-evidence{margin-top:12px}.camera-tools{left:12px;right:12px;bottom:16px;transform:none;justify-content:center;padding:4px;gap:0}.camera-tools button{font-size:9px;min-height:40px;padding:6px 8px}.camera-tools #zoom-label{min-width:24px}.camera-tools #zoom-in,.camera-tools #zoom-out{min-width:28px}.timeline{height:112px;padding:10px 16px;grid-template-columns:1fr auto;grid-template-rows:auto auto;gap:6px 12px}.play-date strong{font-size:14px}.play-date small{font-size:7px}.track{grid-column:1/-1;grid-row:2}.track-dates{display:none}.track-label{font-size:8px}.timeline-actions{grid-column:2;grid-row:1}.timeline-actions button{padding:6px 8px;font-size:9px}.browser-fields{grid-template-columns:1fr}.browser-fields button{grid-column:auto}.note{padding:12px 0}.world-key span:nth-child(n+3){display:flex}.map-tiles{height:180px}.map-file-picker select{font-size:11px}}
+@media(prefers-reduced-motion:reduce){button{transition:none}.file-tile.recent{animation:none}}
+
+/* The hover card leads the side column, so file history is immediately visible. */
+.inspector-rail .file-map{border-top:0;border-bottom:1px solid var(--line)}
+.inspector-rail:has(.file-map:not([hidden])) .session-card{padding-top:18px}
+@media(max-width:760px){.garden-shell .world{height:calc(100svh - 508px)}.inspector-rail{max-height:340px}.map-tiles{height:180px}}
+
+.camera-tools button[aria-pressed="true"]{background:#b9dfbe;color:#234a3d}
+.timeline #playback-speed{min-width:48px;min-height:34px;font-size:12px}
+.timeline #playback-speed[aria-pressed="true"]{background:#345e50;color:#f8f1e3}
+.camera-tools{max-width:calc(100% - 24px);flex-wrap:wrap;justify-content:center}
+.camera-tools button:active{background:#bfd3ba40}
+@media(max-width:1000px){.camera-tools button{padding:7px;min-height:36px}.camera-tools{gap:0}}
+@media(max-width:760px){.camera-tools{max-width:none;bottom:10px}.camera-tools button{padding:5px 7px;min-height:32px}.camera-tools #zoom-label{min-width:20px}}

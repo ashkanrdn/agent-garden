@@ -1,0 +1,8 @@
+{
+  "name": "agent-garden",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test --test-concurrency=1 tests/web/*.cjs"
+  }
+}
