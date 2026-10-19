@@ -1,0 +1,43 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm test
+
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python3 -m unittest discover -s tests/python
+      - run: python3 agent_garden_export.py --help
+      - name: Smoke export with synthetic homes
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke_dir="$(mktemp -d)"
+          mkdir -p "$smoke_dir/codex/sessions"
+          cp tests/fixtures/live-garden/*.jsonl "$smoke_dir/codex/sessions/"
+          python3 agent_garden_export.py \
+            --codex-home "$smoke_dir/codex" \
+            --claude-home tests/fixtures/claude-code \
+            --no-git --output "$smoke_dir/agent-garden.json"
+          python3 -m json.tool "$smoke_dir/agent-garden.json" >/dev/null
