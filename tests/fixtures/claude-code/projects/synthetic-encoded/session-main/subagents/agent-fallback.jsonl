@@ -1,0 +1,1 @@
+{"type": "user", "uuid": "fallback-prompt", "timestamp": "2026-01-02T10:09:00.000Z", "sessionId": "session-main", "cwd": "/synthetic/cedar-studio", "gitBranch": "feature/leaf-work", "isSidechain": true, "message": {"content": "Check fallback leaves"}, "agentId": "fallback"}

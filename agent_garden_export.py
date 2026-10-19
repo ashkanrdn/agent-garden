@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Build a private garden dataset from local Codex history.
+"""Export local Codex and Claude Code session metadata, counts, and changed paths.
 
-Input databases and rollouts are read-only. This adapter exports display names,
-short legacy title excerpts and evidence counts, never transcripts or tool output.
+No message text, prompts, tool output, or file contents are written.
+Short titles are included; --redact removes them and replaces names and paths.
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
+import sys
 import tempfile
 import uuid
 
@@ -40,7 +41,7 @@ def _git(cwd: str, *args: str, timeout: int = 20) -> subprocess.CompletedProcess
     )
 
 
-def resolve_project(cwd: str | None, git_metadata: dict | None = None) -> dict:
+def resolve_project(cwd: str | None, git_metadata: dict | None = None, *, inspect_git=True) -> dict:
     """Resolve a worktree to its shared Git directory, or retain its full cwd.
 
     Git context in a session header is deliberately not proof of repository
@@ -54,7 +55,7 @@ def resolve_project(cwd: str | None, git_metadata: dict | None = None) -> dict:
     ancestor = Path(original) if local_path else None
     while ancestor is not None and not ancestor.is_dir():
         ancestor = None if ancestor.parent == ancestor else ancestor.parent
-    if ancestor is not None:
+    if ancestor is not None and inspect_git:
         try:
             top = _git(str(ancestor), "rev-parse", "--show-toplevel")
             common = _git(str(ancestor), "rev-parse", "--path-format=absolute", "--git-common-dir")
@@ -76,7 +77,8 @@ def resolve_project(cwd: str | None, git_metadata: dict | None = None) -> dict:
         "name": Path(original).name if original else "Unlocated sessions",
         "root": original, "checkoutRoot": original if local_path else None, "gitCommonDir": None,
         "gitAvailable": False, "identityBasis": "recorded-working-directory",
-        "gitUnavailableReason": "no-readable-git-repository" if local_path else "working-directory-not-local-absolute",
+        "gitUnavailableReason": ("git-inspection-skipped" if not inspect_git else
+                                 "no-readable-git-repository" if local_path else "working-directory-not-local-absolute"),
         "cwd": original,
     }
 
@@ -213,7 +215,7 @@ def _file_observation(file: dict, cwd: str | None, checkout: str | None,
 
 def enrich_projects(sessions: list[dict[str, Any]], observed_at: str, *,
                     start_at: str | None = None, end_at: str | None = None,
-                    max_commits_per_project: int = 10000) -> dict:
+                    max_commits_per_project: int = 10000, include_git=True) -> dict:
     """Attach canonical projects and current byte evidence; return actual Git DAGs.
 
     Mutates session.projectId and file paths/byte evidence only. A current byte
@@ -230,7 +232,8 @@ def enrich_projects(sessions: list[dict[str, Any]], observed_at: str, *,
     for session in sessions:
         cwd = session.get("cwd")
         if cwd not in cwd_cache:
-            cwd_cache[cwd] = resolve_project(cwd, session.get("gitContext"))
+            cwd_cache[cwd] = (resolve_project(cwd, session.get("gitContext")) if include_git
+                              else resolve_project(cwd, inspect_git=False))
         identity = cwd_cache[cwd]
         session["projectId"] = identity["id"]
         if identity["id"] not in project_by_id:
@@ -250,7 +253,8 @@ def enrich_projects(sessions: list[dict[str, Any]], observed_at: str, *,
     collapse_worktree_projects(projects, sessions)
     commits, git_coverage = [], []
     for project in projects:
-        project_commits, project_coverage = _read_commits(project, start_at, end_at, max_commits_per_project, observed_at)
+        project_commits, project_coverage = (_read_commits(project, start_at, end_at, max_commits_per_project, observed_at)
+            if include_git else ([], {'projectId': project['id'], 'status': 'skipped', 'count': 0}))
         commits.extend(project_commits)
         git_coverage.append(project_coverage)
         project["gitCoverage"] = project_coverage
@@ -280,6 +284,10 @@ DEFAULT_OUTPUT = Path('agent-garden.json')
 
 def default_codex_home():
     return Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex')
+
+
+def default_claude_home():
+    return Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude')
 
 KNOWN_ENVELOPES = {'session_meta', 'turn_context', 'response_item', 'event_msg',
                    'compacted', 'token_usage_record', 'world_state',
@@ -739,6 +747,252 @@ class SourceBatch:
         self.spawn_edges = set(spawn_edges)
 
 
+CLAUDE_RECORD_TYPES = {'user', 'assistant', 'attachment', 'ai-title', 'summary', 'system',
+                       'queue-operation', 'file-history-snapshot', 'file-history-delta',
+                       'progress', 'custom-title', 'last-prompt'}
+CLAUDE_EDIT_TOOLS = {'Edit', 'MultiEdit', 'Write', 'NotebookEdit'}
+
+
+def _claude_string(value):
+    return value if isinstance(value, str) else ''
+
+
+def _claude_excerpt(value):
+    return (value.strip().splitlines() or [''])[0][:60]
+
+
+def _claude_rows(path, cutoff, stats):
+    """Discard content immediately; retain only bounded titles and evidence metadata."""
+    try:
+        stream = path.open(encoding='utf-8', errors='replace')
+    except OSError:
+        stats['errors'] += 1
+        return []
+    rows = []
+    with stream:
+        for index, line in enumerate(stream):
+            stats['records'] += 1
+            try:
+                raw = json.loads(line)
+                if not isinstance(raw, dict):
+                    raise ValueError('record must be an object')
+            except ValueError:
+                stats['malformedRecords'] += 1
+                continue
+            at = stamp(raw.get('timestamp'))
+            if at and at > cutoff:
+                stats['recordsAfterCutoff'] += 1
+                continue
+            kind = _claude_string(raw.get('type'))
+            unknown = kind not in CLAUDE_RECORD_TYPES
+            if unknown:
+                stats['unrecognizedEnvelopeRecords'] += 1
+            row = {key: _claude_string(raw.get(key)) for key in
+                   ('uuid', 'parentUuid', 'agentId', 'cwd', 'gitBranch',
+                    'sourceToolAssistantUUID', 'sourceToolUseID', 'toolUseId', 'parentToolUseId')}
+            row.update(type=kind, at=at, side=raw.get('isSidechain') is True,
+                       unknown=unknown, calls=[], results=[], prompt=False, excerpt='', title='')
+            row['key'] = row['uuid'] or f'line:{index}'
+            if kind in ('ai-title', 'summary'):
+                row['title'] = _claude_excerpt(_claude_string(
+                    raw.get('aiTitle') or raw.get('title') or raw.get('summary')))
+            message = raw.get('message')
+            content = message.get('content') if isinstance(message, dict) else None
+            blocks = content if isinstance(content, list) else []
+            if any(not isinstance(block, dict) for block in blocks):
+                stats['malformedRecords'] += 1
+            blocks = [block for block in blocks if isinstance(block, dict)]
+            has_result = any(block.get('type') == 'tool_result' for block in blocks)
+            text = content if isinstance(content, str) else '\n'.join(
+                _claude_string(block.get('text')) for block in blocks if block.get('type') == 'text')
+            excluded = (raw.get('isMeta') or raw.get('isCompactSummary') or has_result
+                        or raw.get('toolUseResult') is not None or text.lstrip().startswith((
+                            '<command-', '<local-command-', '<system-reminder>', '<task-notification>',
+                            '<bash-input>', '<bash-stdout>', '<bash-stderr>',
+                            'This session is being continued from a previous conversation')))
+            if kind == 'user' and not excluded:
+                row['prompt'] = bool(text.strip()) or any(block.get('type') == 'image' for block in blocks)
+                row['excerpt'] = _claude_excerpt(text) if row['prompt'] else ''
+            for block_index, block in enumerate(blocks):
+                if kind == 'assistant' and block.get('type') == 'tool_use':
+                    tool_id = _claude_string(block.get('id'))
+                    name = _claude_string(block.get('name'))
+                    inputs = block.get('input')
+                    inputs = inputs if isinstance(inputs, dict) else {}
+                    file_path = _claude_string(inputs.get('notebook_path') if name == 'NotebookEdit'
+                                               else inputs.get('file_path'))
+                    row['calls'].append({'id': tool_id or f"{row['key']}:{block_index}",
+                                         'missingId': not tool_id, 'name': name,
+                                         'path': file_path if name in CLAUDE_EDIT_TOOLS else ''})
+                elif block.get('type') == 'tool_result':
+                    tool_id = _claude_string(block.get('tool_use_id'))
+                    if not tool_id:
+                        stats['toolResultsWithoutId'] += 1
+                        continue
+                    result = raw.get('toolUseResult')
+                    result = result if isinstance(result, dict) else {}
+                    row['results'].append({'id': tool_id, 'error': bool(block.get('is_error')),
+                        'agentId': _claude_string(result.get('agentId') or result.get('resumedAgentId'))})
+            rows.append(row)
+    return rows
+
+
+class ClaudeCodeAdapter:
+    """Read primary transcripts, subagent files, and legacy inline sidechains."""
+
+    def __init__(self, claude_home=None):
+        self.claude_home = Path(claude_home or default_claude_home()).expanduser().resolve()
+
+    def read(self, cutoff):
+        root = self.claude_home / 'projects'
+        stats = Counter(records=0, errors=0, malformedRecords=0, unrecognizedEnvelopeRecords=0)
+        source = {'id': 'claude-code', 'kind': 'claude-code', 'path': str(root),
+                  'exists': root.is_dir(), 'status': 'available' if root.is_dir() else 'missing',
+                  'scope': 'rollouts', 'sessions': 0, 'rollouts': 0, 'databaseSessions': 0,
+                  'databaseStatus': 'not-applicable'}
+        sessions, calls, outcomes, links = {}, defaultdict(dict), defaultdict(dict), defaultdict(set)
+        roots, aliases, spawn_refs, agent_refs = {}, {}, defaultdict(set), defaultdict(set)
+        title_ranks, prompt_ranks = {}, {}
+        specs = [(path, path.stem, None) for path in sorted(root.glob('*/*.jsonl'))]
+        specs.extend((path, path.parent.parent.name, path.stem[len('agent-'):])
+                     for path in sorted(root.glob('*/*/subagents/agent-*.jsonl')))
+        for path, native_root, file_agent in specs:
+            source['rollouts'] += 1
+            root_id = 'claude-code:' + native_root
+            rows = _claude_rows(path, cutoff, stats)
+            by_uuid = {row['uuid']: row for row in rows if row['uuid']}
+            routes = {}
+
+            def route(row):
+                if file_agent:
+                    return root_id + ':agent:' + file_agent
+                trail, seen, current = [], set(), row
+                while True:
+                    key = current['key']
+                    if key in routes:
+                        sid = routes[key]
+                        break
+                    if not current['side']:
+                        sid = root_id
+                        break
+                    if current['agentId']:
+                        sid = root_id + ':agent:' + current['agentId']
+                        break
+                    trail.append(key)
+                    seen.add(key)
+                    parent = by_uuid.get(current['parentUuid'])
+                    if parent is None or not parent['side'] or parent['key'] in seen:
+                        sid = root_id + ':sidechain:' + key
+                        break
+                    current = parent
+                routes[row['key']] = sid
+                routes.update((key, sid) for key in trail)
+                return sid
+
+            touched = set()
+            for index, row in enumerate(rows):
+                sid = route(row)
+                # Administrative records alone do not establish a session.
+                if sid not in sessions and not (row['at'] or row['title']):
+                    continue
+                session = sessions.setdefault(sid, normalized_session(sid, 'claude-code'))
+                touched.add(sid)
+                roots[sid] = root_id
+                session['sourceIds'] = ['claude-code']
+                session['isSubagent'] = sid != root_id
+                if row['uuid']:
+                    aliases[(root_id, row['uuid'])] = sid
+                if file_agent or row['agentId']:
+                    aliases[(root_id, 'agent:' + (file_agent or row['agentId']))] = sid
+                coverage = session['_coverage']
+                if row['unknown']:
+                    coverage['unrecognizedEnvelopeRecords'] += 1
+                at = row['at']
+                if at:
+                    session['createdAt'] = min(session['createdAt'] or at, at)
+                    session['updatedAt'] = max(session['updatedAt'] or at, at)
+                elif row['type'] in ('user', 'assistant'):
+                    coverage['recordsWithoutTimestamp'] += 1
+                rank = at or session['updatedAt'] or ''
+                if rank >= session['_metadataRank']:
+                    session['_metadataRank'] = rank
+                    session['cwd'] = row['cwd'] or session['cwd']
+                    if row['gitBranch']:
+                        session['gitContext']['branch'] = row['gitBranch']
+                if row['title'] and (rank, index) >= title_ranks.get(sid, ('', -1)):
+                    title_ranks[sid] = (rank, index)
+                    session.update(title=row['title'], titleSource=row['type'] + '-excerpt')
+                if row['prompt'] and at:
+                    put_unique(session['_events'], 'turn:' + row['key'],
+                               {'at': at, 'kind': 'turn', 'count': 1}, coverage)
+                    if row['excerpt'] and at < prompt_ranks.get(sid, 'z'):
+                        prompt_ranks[sid] = at
+                        if sid not in title_ranks:
+                            session.update(title=row['excerpt'], titleSource='first-user-prompt-excerpt')
+                for name in ('sourceToolAssistantUUID', 'sourceToolUseID', 'toolUseId', 'parentToolUseId'):
+                    if row[name]:
+                        links[sid].add(row[name])
+                # A sidechain's first parent UUID can point at its spawning assistant.
+                if row['parentUuid']:
+                    links[sid].add(row['parentUuid'])
+                for call in row['calls']:
+                    if call['missingId']:
+                        coverage['toolUsesWithoutId'] += 1
+                    put_unique(calls[sid], call['id'], dict(call, at=at, cwd=row['cwd'] or session['cwd']), coverage)
+                    if call['name'] in ('Task', 'Agent'):
+                        spawn_refs[(root_id, call['id'])].add(sid)
+                        if row['uuid']:
+                            spawn_refs[(root_id, row['uuid'])].add(sid)
+                for result in row['results']:
+                    put_unique(outcomes[sid], result['id'], dict(result, at=at), coverage)
+            for sid in touched:
+                sessions[sid]['rolloutCount'] += 1
+        for sid, session in sessions.items():
+            coverage = session['_coverage']
+            for key, call in calls[sid].items():
+                result = outcomes[sid].get(key)
+                at = (result or {}).get('at') or call['at']
+                if at:
+                    session['_events']['tool:' + key] = {'at': at, 'kind': 'tool', 'count': 1}
+                coverage['invocationsMatchedToOutcomes' if result else 'unmatchedToolInvocations'] += 1
+                if result and result['agentId'] and call['name'] in ('Task', 'Agent'):
+                    agent_refs[(roots[sid], 'agent:' + result['agentId'])].add(sid)
+                if call['name'] not in CLAUDE_EDIT_TOOLS or not result:
+                    continue
+                if result['error']:
+                    coverage['unsuccessfulFileOutcomes'] += 1
+                elif not call['path'] or '\0' in call['path']:
+                    coverage['unrecognizedFileChanges'] += 1
+                elif at:
+                    # All explicit edit tools use the same path and event normalizer as Codex.
+                    record_files(session, {'success': True, 'changes': {call['path']: {
+                        'type': 'update'}}}, at, key, call['cwd'] or session['cwd'])
+            coverage['unmatchedToolResults'] += len(set(outcomes[sid]) - set(calls[sid]))
+        for sid, session in sessions.items():
+            if not session['isSubagent']:
+                continue
+            root_id = roots[sid]
+            candidates = set()
+            for ref in links[sid]:
+                candidates.update(spawn_refs.get((root_id, ref), ()))
+            for (family, ref), child in aliases.items():
+                if family == root_id and child == sid and ref.startswith('agent:'):
+                    candidates.update(agent_refs.get((family, ref), ()))
+            candidates.discard(sid)
+            if len(candidates) == 1:
+                session['parentId'] = next(iter(candidates))
+            else:
+                session['parentId'] = root_id
+                session['_coverage']['unresolvedSpawnLinks'] += 1
+                stats['unresolvedSpawnLinks'] += 1
+            parent = sessions.get(session['parentId'])
+            if parent and not session['cwd']:
+                session['cwd'] = parent['cwd']
+        source.update(stats)
+        source['sessions'] = source['rolloutSessions'] = len(sessions)
+        return SourceBatch(list(sessions.values()), [source])
+
+
 class CodexAdapter:
     """Read live Codex and an optional backup as one source family."""
 
@@ -842,7 +1096,7 @@ def merge_session_records(sessions, record):
 
 
 def build_dataset(codex_home=None, backup_root=None, *, enrich_git=True,
-                  adapters=None, cutoff=None):
+                  adapters=None, cutoff=None, include_git=True):
     """Run the shared pipeline; pass adapters to add another history source."""
     cutoff = stamp(cutoff or datetime.now(timezone.utc).isoformat())
     if cutoff is None:
@@ -867,12 +1121,14 @@ def build_dataset(codex_home=None, backup_root=None, *, enrich_git=True,
     start = min((session['createdAt'] for session in session_list if session['createdAt']), default=cutoff)
     if enrich_git:
         observation_at = stamp(datetime.now(timezone.utc).isoformat())
-        enriched = enrich_projects(session_list, observation_at, start_at=start, end_at=cutoff)
+        enriched = enrich_projects(session_list, observation_at, start_at=start, end_at=cutoff,
+                                   include_git=include_git)
     else:
         enriched = {'projects': [], 'commits': [], 'coverage': {'gitSkipped': True}}
     for project in enriched['projects']:
         project.setdefault('git', {'available': project.get('gitAvailable', False),
-                                  'reason': None if project.get('gitAvailable') else 'Repository unavailable at import'})
+                                  'reason': None if project.get('gitAvailable') else
+                                  'Git inspection skipped' if not include_git else 'Repository unavailable at import'})
     for commit in enriched['commits']:
         commit.setdefault('parents', commit.get('parentShas', []))
         commit.setdefault('ownerSessionId', commit.get('sessionId'))
@@ -889,8 +1145,9 @@ def build_dataset(codex_home=None, backup_root=None, *, enrich_git=True,
         'successfulFileEvents': sum(len(file['events']) for session in session_list for file in session['files']),
         'sourceErrors': sum(source.get('errors', 0) for source in sources),
         'malformedRecords': sum(source.get('malformedRecords', 0) for source in sources),
+        'unrecognizedEnvelopeRecords': sum(source.get('unrecognizedEnvelopeRecords', 0) for source in sources),
         'limits': [
-            'File activity includes explicit successful Codex patch outcomes, not every shell or editor write.',
+            'File activity includes successful Codex patches and Claude edit tools, not every shell or editor write.',
             'File bytes are current observations. Historical byte sizes are unknown.',
             'Git commits have unknown session ownership; metadata Git SHAs are context only.',
             'Legacy inherited history without an ownership boundary is excluded.',
@@ -898,6 +1155,7 @@ def build_dataset(codex_home=None, backup_root=None, *, enrich_git=True,
             'Activity uses hourly buckets timestamped at the last event; partial hours can undercount.',
             'Token usage is omitted because overlapping report formats require separate reconciliation.',
             'Missing source folders and repositories remain visible as coverage gaps.',
+            'Claude subagents without a unique spawn link fall back to their containing session.',
         ],
     }
     aggregate = Counter()
@@ -919,6 +1177,85 @@ def build_dataset(codex_home=None, backup_root=None, *, enrich_git=True,
             }}
 
 
+def redact_dataset(dataset):
+    """Copy the fixed export schema, replacing private labels and linked identities."""
+    import copy
+    import re
+    result = copy.deepcopy(dataset)
+    projects = {project['id']: f'project-{index}' for index, project in enumerate(
+        sorted(result['projects'], key=lambda project: project['id']), 1)}
+    branches = sorted({branch for session in result['sessions']
+                       for branch in [session.get('gitContext', {}).get('branch')] if branch}
+                      | {branch for commit in result['commits'] for branch in commit.get('branches', [])})
+    branches = {branch: f'branch-{index}' for index, branch in enumerate(branches, 1)}
+
+    def identity(value):
+        return _identity('id', value) if value else value
+
+    def sha(value):
+        return hashlib.sha256(value.encode()).hexdigest() if value else value
+
+    def path(value, cwd=None):
+        if not value:
+            return value
+        if os.path.isabs(value) and cwd:
+            value = os.path.relpath(value, cwd)
+        parts = [part for part in value.replace('\\', '/').split('/') if part and part != '.']
+        encoded = []
+        for index, part in enumerate(parts):
+            extension = Path(part).suffix if index == len(parts) - 1 else ''
+            if not re.fullmatch(r'\.[a-zA-Z0-9]{1,12}', extension):
+                extension = ''
+            encoded.append(hashlib.sha256(part.encode()).hexdigest()[:12] + extension)
+        return '/'.join(encoded)
+
+    for source in result['sources']:
+        source.pop('path', None)
+    for project in result['projects']:
+        project['name'] = projects[project['id']]
+        for key in ('root', 'checkoutRoot', 'gitCommonDir', 'cwd', 'workspaces'):
+            project.pop(key, None)
+    for session in result['sessions']:
+        cwd = session.get('cwd')
+        for key in ('title', 'titleSource', 'cwd', 'nickname', 'role', 'agentPath', 'model', 'reasoningEffort'):
+            session.pop(key, None)
+        context = session.get('gitContext', {})
+        session['gitContext'] = {key: branches[value] if key == 'branch' else sha(value)
+                                 for key, value in context.items() if key in ('branch', 'sha') and value}
+        for file in session['files']:
+            file['path'] = path(file['path'], cwd)
+            file.pop('absolutePath', None)
+            for event in file['events']:
+                if event.get('previousPath'):
+                    event['previousPath'] = path(event['previousPath'], cwd)
+    for commit in result['commits']:
+        commit['sha'] = sha(commit['sha'])
+        commit['parentShas'] = [sha(value) for value in commit.get('parentShas', [])]
+        commit['parents'] = [sha(value) for value in commit.get('parents', [])]
+        commit['branches'] = [branches[value] for value in commit.get('branches', [])]
+
+    def references(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key == 'projectId' and item:
+                    value[key] = projects.get(item, identity(item))
+                elif key == 'id' and isinstance(item, str):
+                    value[key] = projects.get(item, identity(item))
+                elif key in ('parentId', 'rootSessionId', 'forkedFromId', 'sessionId', 'ownerSessionId'):
+                    value[key] = identity(item)
+                elif key in ('sessionIds', 'agentIds', 'sourceIds'):
+                    value[key] = [identity(entry) for entry in item]
+                else:
+                    references(item)
+        elif isinstance(value, list):
+            for item in value:
+                references(item)
+
+    references(result)
+    result['redacted'] = True
+    return result
+
+
 def write_dataset(dataset, output):
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -937,18 +1274,55 @@ def write_dataset(dataset, output):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source', choices=('all', 'codex', 'claude-code'), default='all',
+                        help='History to read (default: all)')
     parser.add_argument('--codex-home', type=Path, default=default_codex_home(),
                         help='Codex history directory (default: CODEX_HOME or ~/.codex)')
     parser.add_argument('--live-root', dest='codex_home', type=Path, help=argparse.SUPPRESS)
+    parser.add_argument('--claude-home', type=Path, default=default_claude_home(),
+                        help='Claude directory (default: CLAUDE_CONFIG_DIR or ~/.claude)')
     parser.add_argument('--backup-root', type=Path, help='Optional Codex backup directory')
-    parser.add_argument('--output', type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument('--skip-git', action='store_true', help='Parser-only diagnostics; omit repository enrichment')
+    parser.add_argument('--output', type=Path, default=DEFAULT_OUTPUT,
+                        help='Output file (default: ./agent-garden.json)')
+    parser.add_argument('--no-git', action='store_true', help='Skip Git inspection and commit history')
+    parser.add_argument('--skip-git', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--redact', action='store_true', help='Replace private labels and paths for sharing')
     args = parser.parse_args(argv)
+    adapters = []
+    if args.source in ('all', 'codex'):
+        adapters.append(CodexAdapter(args.codex_home, args.backup_root))
+    if args.source in ('all', 'claude-code'):
+        adapters.append(ClaudeCodeAdapter(args.claude_home))
+    # Read once so missing-source notices also appear when every source is absent.
+    cutoff = stamp(datetime.now(timezone.utc).isoformat())
+    batches = []
+
+    class ReadBatch:
+        def __init__(self, batch):
+            self.batch = batch
+
+        def read(self, cutoff):
+            return self.batch
+
     try:
-        dataset = build_dataset(args.codex_home, args.backup_root, enrich_git=not args.skip_git)
-        write_dataset(dataset, args.output)
+        for adapter in adapters:
+            batch = adapter.read(cutoff)
+            batches.append(ReadBatch(batch))
+            for source in batch.sources:
+                if not source.get('exists', True):
+                    print(f"Note: {source['kind']} ({source['id']}) is missing; skipped.", file=sys.stderr)
+        dataset = build_dataset(adapters=batches, cutoff=cutoff, enrich_git=not args.skip_git,
+                                include_git=not args.no_git)
+        write_dataset(redact_dataset(dataset) if args.redact else dataset, args.output)
     except (ValueError, OSError) as error:
         parser.exit(1, f'Export failed: {error}\n')
+    for source in dataset['sources']:
+        selected = [session for session in dataset['sessions'] if source['id'] in session['sourceIds']]
+        project_ids = {session.get('projectId') for session in selected} - {None}
+        commits = sum(commit['projectId'] in project_ids for commit in dataset['commits'])
+        print(f"{source['kind']} ({source['id']}): {len(selected)} sessions, {len(project_ids)} projects, "
+              f"{commits} commits; {source['rollouts']} files, {source['records']} records, "
+              f"{source.get('malformedRecords', 0)} malformed, {source['errors']} errors")
     print(f"Exported {len(dataset['sessions'])} sessions, {len(dataset['projects'])} projects, "
           f"{len(dataset['commits'])} commits.\n"
           f"Output: {args.output.resolve()} ({args.output.stat().st_size:,} bytes)")
