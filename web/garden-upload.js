@@ -23,7 +23,9 @@ export function buildExportCommand(pageURL) {
   return 'curl -fsSL ' + argument + ' | python3 -';
 }
 
-export async function detectGardenMode(fetchImpl = globalThis.fetch) {
+export async function detectGardenMode(pageURL, fetchImpl = globalThis.fetch) {
+  const hostname = new URL(pageURL).hostname.replace(/^\[|\]$/g, '');
+  if (!['localhost', '127.0.0.1', '::1'].includes(hostname)) return 'hosted';
   try {
     const response = await fetchImpl('/api/status', { cache: 'no-store' });
     if (!response.ok) return 'hosted';
@@ -43,7 +45,7 @@ export function createGardenDataSource({ pageURL, fetchImpl = globalThis.fetch }
     baseURL,
     command: buildExportCommand(pageURL),
     initialize() {
-      return detection ||= detectGardenMode(fetchImpl).then(result => (mode = result));
+      return detection ||= detectGardenMode(pageURL, fetchImpl).then(result => (mode = result));
     },
     fetchLocal(url, options) {
       if (mode !== 'local') return Promise.resolve(null);

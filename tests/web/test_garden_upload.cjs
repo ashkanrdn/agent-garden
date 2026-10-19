@@ -17,10 +17,22 @@ for (const [name, response, expected] of [
   ['404', () => ({ ok: false, status: 404, json: () => { throw Error('Do not parse a 404'); } }), 'hosted'],
   ['network failure', () => { throw TypeError('Network error'); }, 'hosted'],
   ['HTML 200', () => ({ ok: true, status: 200, json: async () => { throw SyntaxError('Unexpected <'); } }), 'hosted'],
-]) test('mode detection: ' + name, async () => {
+]) test('loopback mode detection: ' + name, async () => {
   const { detectGardenMode } = await ready, calls = [];
-  const mode = await detectGardenMode(async (...args) => { calls.push(args); return response(); });
+  const mode = await detectGardenMode('http://127.0.0.1:8000/', async (...args) => { calls.push(args); return response(); });
   assert.equal(mode, expected);
+  assert.deepEqual(calls, [['/api/status', { cache: 'no-store' }]]);
+});
+
+for (const host of ['garden.example', 'example.com']) test('hosted mode skips status probe on ' + host, async () => {
+  const { detectGardenMode } = await ready, calls = [];
+  assert.equal(await detectGardenMode('https://' + host + '/', async (...args) => { calls.push(args); }), 'hosted');
+  assert.deepEqual(calls, []);
+});
+
+for (const host of ['localhost', '127.0.0.1', '[::1]']) test('mode detection probes loopback host ' + host, async () => {
+  const { detectGardenMode } = await ready, calls = [];
+  assert.equal(await detectGardenMode('http://' + host + '/', async (...args) => { calls.push(args); return json({}); }), 'local');
   assert.deepEqual(calls, [['/api/status', { cache: 'no-store' }]]);
 });
 
@@ -68,20 +80,20 @@ test('hosted data source sends only the status probe and explicitly requested de
   } });
   assert.equal(await source.fetchLocal('/api/refresh', { method: 'POST' }), null);
   assert.deepEqual(await Promise.all([source.initialize(), source.initialize()]), ['hosted', 'hosted']);
-  assert.equal(calls.length, 1, 'detection is shared and runs once');
+  assert.equal(calls.length, 0, 'hosted detection makes no request');
   for (const url of ['/api/status', '/api/live/messages', '/api/refresh', 'local-session-data.json?refresh=1']) {
     assert.equal(await source.fetchLocal(url), null);
   }
   assert.deepEqual(await source.readFile(file(valid())), valid());
-  assert.equal(calls.length, 1, 'reading a file and blocked local requests make no network requests');
+  assert.equal(calls.length, 0, 'reading a file and blocked local requests make no network requests');
   assert.deepEqual(await source.readDemo(), valid());
-  assert.deepEqual(calls.map(call => call.url), ['/api/status', 'https://garden.example/releases/garden/demo/agent-garden-demo.json']);
+  assert.deepEqual(calls.map(call => call.url), ['https://garden.example/releases/garden/demo/agent-garden-demo.json']);
   assert.ok(calls.every(call => !call.options?.body), 'file contents never enter a request');
 });
 
 test('local data source permits refresh, status, and local dataset requests', async () => {
   const { createGardenDataSource } = await ready, calls = [];
-  const source = createGardenDataSource({ pageURL, fetchImpl: async (...args) => { calls.push(args); return json({}); } });
+  const source = createGardenDataSource({ pageURL: 'http://localhost:8080/', fetchImpl: async (...args) => { calls.push(args); return json({}); } });
   assert.equal(await source.initialize(), 'local');
   await source.fetchLocal('/api/refresh', { method: 'POST' });
   await source.fetchLocal('local-session-data.json?refresh=1', { cache: 'no-store' });
@@ -112,12 +124,13 @@ function dom() {
 async function mounted({ local = false, demoOK = true, query = '', onData } = {}) {
   const { createGardenDataSource, mountGardenUpload } = await ready;
   const ui = dom(), calls = [], loaded = [], modes = [], localLoads = [];
-  const source = createGardenDataSource({ pageURL: pageURL + query, fetchImpl: async (url, options) => {
+  const currentPageURL = (local ? 'http://localhost:8000/' : pageURL) + query;
+  const source = createGardenDataSource({ pageURL: currentPageURL, fetchImpl: async (url, options) => {
     calls.push({ url: String(url), options });
     return url === '/api/status' ? (local ? json({}) : { ok: false, status: 404 })
       : demoOK ? json(valid()) : { ok: false, status: 404 };
   } });
-  const upload = mountGardenUpload({ source, document: ui.document, pageURL: pageURL + query,
+  const upload = mountGardenUpload({ source, document: ui.document, pageURL: currentPageURL,
     clipboard: { writeText: async text => { ui.copied = text; } },
     onMode: mode => modes.push(mode), onLocal: () => localLoads.push(true),
     onData: data => { onData?.(data); loaded.push(data); } });
@@ -162,7 +175,7 @@ test('file selection and dropping another file swap data in memory without reque
   assert.equal(drop(ui, file(second)), true);
   await flush();
   assert.deepEqual(ui.loaded, [first, second]);
-  assert.equal(ui.calls.length, 1, 'only the initial status probe');
+  assert.equal(ui.calls.length, 0, 'hosted file actions make no requests');
 });
 
 test('invalid JSON, invalid shape, unreadable files, and parser errors keep arrival open', async () => {
@@ -190,7 +203,7 @@ test('the newest file wins when an earlier file read finishes late', async () =>
 test('?demo loads the same-origin demo directly; a 404 remains a quiet inline message', async () => {
   const ui = await mounted({ query: '?demo' });
   assert.equal(ui.loaded.length, 1); assert.equal(ui.node('garden-arrival').hidden, true);
-  assert.deepEqual(ui.calls.map(call => call.url), ['/api/status', 'https://garden.example/releases/garden/demo/agent-garden-demo.json']);
+  assert.deepEqual(ui.calls.map(call => call.url), ['https://garden.example/releases/garden/demo/agent-garden-demo.json']);
   const missing = await mounted({ query: '?demo', demoOK: false });
   assert.equal(missing.loaded.length, 0); assert.equal(missing.node('garden-arrival').hidden, false);
   assert.equal(missing.node('upload-status').textContent, 'The demo garden is unavailable. Choose a file instead.');
@@ -233,7 +246,7 @@ test('actual canvas loading, refresh, live, and message wiring cannot request lo
 
 test('actual local loader, refresh, and event stream retain local behavior', async () => {
   const { createGardenDataSource } = await ready, ui = dom(), requests = [], datasets = [], streams = [];
-  const source = createGardenDataSource({ pageURL, fetchImpl: async (url, options) => {
+  const source = createGardenDataSource({ pageURL: 'http://127.0.0.1:8000/', fetchImpl: async (url, options) => {
     requests.push({ url: String(url), options });
     return json(String(url).startsWith('local-session') ? valid() : { busy: false });
   } });
